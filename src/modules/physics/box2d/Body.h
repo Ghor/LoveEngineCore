@@ -384,6 +384,12 @@ public:
 	int getFixtureList(lua_State *L) const;
 
 	/**
+	 * Casts a body like a ray.
+	 **/
+
+	int sweep(lua_State *L);
+
+	/**
 	 * Destroy this body.
 	 **/
 	void destroy();
