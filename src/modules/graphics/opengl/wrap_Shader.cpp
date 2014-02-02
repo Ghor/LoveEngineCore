@@ -346,6 +346,65 @@ int w_Shader_send(lua_State *L)
 	return luaL_argerror(L, 3, "number, boolean, table, image, or canvas expected");
 }
 
+const char* glTypeToString( GLenum type )
+{
+	switch (type)
+	{
+	case GL_INT:
+	case GL_INT_VEC2:
+	case GL_INT_VEC3:
+	case GL_INT_VEC4:
+		return "int";
+	case GL_FLOAT:
+	case GL_FLOAT_VEC2:
+	case GL_FLOAT_VEC3:
+	case GL_FLOAT_VEC4:
+	case GL_FLOAT_MAT2:
+	case GL_FLOAT_MAT3:
+	case GL_FLOAT_MAT4:
+		return "float";
+	case GL_BOOL:
+	case GL_BOOL_VEC2:
+	case GL_BOOL_VEC3:
+	case GL_BOOL_VEC4:
+		return "bool";
+	case GL_SAMPLER_1D:
+	case GL_SAMPLER_2D:
+	case GL_SAMPLER_3D:
+		return "sampler";
+	default:
+		break;
+	}
+	return "unknown";
+}
+
+int w_Shader_getUniforms(lua_State *L)
+{
+	Shader *shader = luax_checkshader(L, 1);
+	std::vector< Shader::UniformDescriptor > uniforms = shader->getUniforms();
+
+	lua_createtable( L, uniforms.size(), 0 ); // t
+	for ( size_t i=0, i_end=uniforms.size(); i != i_end; ++i )
+	{
+		lua_pushinteger( L, i+1 ); // The i in t[i]=v at the end of this block.
+		lua_createtable( L, 0, 3 ); // The v in t[i]=v at the end of this block.
+
+		const Shader::UniformDescriptor& desc = uniforms[i];
+
+		lua_pushstring( L, desc.name.c_str() ); // v.name
+		lua_setfield( L, -2, "name" );
+
+		lua_pushstring( L, glTypeToString( desc.type ) ); // v.type
+		lua_setfield( L, -2, "type" );
+
+		lua_pushinteger( L, desc.count ); // v.count
+		lua_setfield( L, -2, "count" );
+		
+		lua_settable( L, -3 ); // t[i]=v
+	}
+	return 1;
+}
+
 static const luaL_Reg functions[] =
 {
 	{ "getWarnings", w_Shader_getWarnings },
@@ -355,6 +414,7 @@ static const luaL_Reg functions[] =
 	{ "sendMatrix",  w_Shader_sendMatrix },
 	{ "sendTexture", w_Shader_sendTexture },
 	{ "send",        w_Shader_send },
+	{ "getUniforms", w_Shader_getUniforms },
 
 	// Deprecated since 0.9.1.
 	{ "sendImage",   w_Shader_sendTexture },

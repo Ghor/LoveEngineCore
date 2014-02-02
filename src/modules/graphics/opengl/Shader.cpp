@@ -758,6 +758,20 @@ bool Shader::isSupported()
 	return GLEE_VERSION_2_0 && getGLSLVersion() >= "1.2";
 }
 
+std::vector< Shader::UniformDescriptor > Shader::getUniforms() const
+{
+	std::vector< UniformDescriptor > out;
+	for ( auto it = uniforms.begin(), it_end = uniforms.end(); it != it_end; ++it )
+	{
+		UniformDescriptor desc;
+		desc.name = (*it).second.name;
+		desc.type = (*it).second.type;
+		desc.count = (*it).second.count;
+		out.push_back( desc );
+	}
+	return out;
+}
+
 StringMap<Shader::ShaderType, Shader::TYPE_MAX_ENUM>::Entry Shader::typeNameEntries[] =
 {
 	{"vertex", Shader::TYPE_VERTEX},

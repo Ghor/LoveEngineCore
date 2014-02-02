@@ -148,6 +148,15 @@ public:
 	static std::string getGLSLVersion();
 	static bool isSupported();
 
+	struct UniformDescriptor
+	{
+		std::string name;
+		GLenum type;
+		size_t count;
+	};
+
+	std::vector< UniformDescriptor > getUniforms() const;
+
 private:
 
 	// Types of potential uniform variables used in love's shaders.
