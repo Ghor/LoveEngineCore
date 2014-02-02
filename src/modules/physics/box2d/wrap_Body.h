@@ -84,6 +84,7 @@ int w_Body_setAwake(lua_State *L);
 int w_Body_setFixedRotation(lua_State *L);
 int w_Body_isFixedRotation(lua_State *L);
 int w_Body_getFixtureList(lua_State *L);
+int w_Body_sweep(lua_State *L);
 int w_Body_destroy(lua_State *L);
 extern "C" int luaopen_body(lua_State *L);
 

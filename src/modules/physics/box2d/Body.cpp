@@ -469,6 +469,201 @@ void Body::destroy()
 	this->release();
 }
 
+struct ShapeCastResults
+{
+	ShapeCastResults() : fraction( 1.0f ), hitBody( NULL )
+	{
+	}
+	float32 fraction;
+	b2Vec2 hitPoint; //The position where the shape is stopped.
+	b2Vec2 myContactPoint; // The point-of-contact of the cast. Do not confuse with hitPos.
+	b2Vec2 otherContactPoint;
+	b2Vec2 contactNormal;
+	b2Body* hitBody;
+};
+
+void GetSweepInfo( b2Body* body, const b2Vec2 p1, const b2Vec2& p2, b2Sweep* out )
+{
+
+	out->localCenter.SetZero();
+	out->c0 = p1;
+	out->c = p2;
+	out->a0 = body->GetAngle();
+	out->a = out->a0;
+}
+
+void GetObstacleSweepInfo( b2Body* body, b2Sweep* out )
+{
+	out->localCenter.SetZero();
+	out->c0 = body->GetPosition();
+	out->c = out->c0;
+	out->a0 = body->GetAngle();
+	out->a = out->a0;
+}
+
+void SweepShape( b2TOIInput* input, b2Body* bodyA, b2Body* bodyB, ShapeCastResults* out )
+{
+	// "Part A" of the input should be considered constant. Fill out "Part B".
+	input->proxyB.Set( bodyB->GetFixtureList()->GetShape(), 0 );
+	GetObstacleSweepInfo( bodyB, &input->sweepB );
+
+	// Do the actual sweep.
+	b2TOIOutput output;
+
+	b2TimeOfImpact( &output, input );
+
+	if ( output.state == b2TOIOutput::e_touching && output.t < 1.0f )
+	{
+		// Get contact points and contact normal.
+		b2SimplexCache cache;
+		cache.count = 0;
+
+		b2DistanceOutput distanceOutput;
+		b2DistanceInput distanceInput;
+
+		distanceInput.proxyA = input->proxyA;
+		distanceInput.proxyB = input->proxyB;
+
+		input->sweepA.GetTransform( &distanceInput.transformA, output.t );
+		input->sweepB.GetTransform( &distanceInput.transformB, output.t );
+		distanceInput.useRadii = false;
+
+
+
+		b2Distance( &distanceOutput, &cache, &distanceInput );
+
+		// Fill out the results.
+		out->fraction = output.t;
+		out->hitPoint = distanceInput.transformA.p;
+		out->myContactPoint = distanceOutput.pointA;
+		out->otherContactPoint = distanceOutput.pointB;
+		out->contactNormal = b2Vec2( distanceOutput.pointB.x - distanceOutput.pointA.x, distanceOutput.pointB.y - distanceOutput.pointA.y );
+		out->contactNormal.Normalize();
+		out->hitBody = bodyB;
+		return;
+	}
+	// Indicate that no contact was made. The rest of the values will be garbage but that's fine.
+	out->hitBody = NULL;
+}
+
+class BodyCastCallback : public b2QueryCallback
+{
+public:
+	BodyCastCallback( lua_State* L, b2Body* body, b2TOIInput* traceInfo ) :
+	  L(L),
+		  traceInfo( traceInfo ),
+		  body( body )
+	  {
+	  }
+
+private:
+	b2TOIInput* traceInfo;
+	b2Body* body;
+	lua_State* L;
+
+public:
+	/// Called for each fixture found in the query AABB.
+	/// @return false to terminate the query.
+	virtual bool ReportFixture( b2Fixture* testFixture ) // If this is getting called for every fixture, it will be redundant. The actual shape cast tests entire shapes, not single fixtures.
+	{
+		b2Body* otherBody = testFixture->GetBody();
+
+		// Do the sweep.
+		ShapeCastResults thisTestResult;
+		SweepShape( traceInfo, body, otherBody, &thisTestResult );
+
+		if ( !thisTestResult.hitBody )
+			return true;
+
+		lua_pushvalue( L, -1 ); // Push the callback.
+
+		Fixture *fixture = (Fixture *)Memoizer::find(testFixture);
+		if (!fixture)
+			throw love::Exception("A fixture has escaped Memoizer!");
+		fixture->retain();
+
+		// fixture ( fixture )
+		luax_pushtype( L, "Fixture", PHYSICS_FIXTURE_T, fixture );
+
+		// fraction ( fraction )
+		lua_pushnumber( L, thisTestResult.fraction );
+
+		// hitPoint ( x, y )
+		b2Vec2 outHitPoint = Physics::scaleUp( thisTestResult.hitPoint );
+		lua_pushnumber( L, outHitPoint.x );
+		lua_pushnumber( L, outHitPoint.y );
+
+		// contactNormal ( nx, ny )
+		lua_pushnumber( L, thisTestResult.contactNormal.x );
+		lua_pushnumber( L, thisTestResult.contactNormal.y );
+
+		// myContactPoint ( mx, my )
+		b2Vec2 outMyContactPoint = Physics::scaleUp( thisTestResult.myContactPoint );
+		lua_pushnumber( L, outMyContactPoint.x );
+		lua_pushnumber( L, outMyContactPoint.y );
+
+		// otherContactPoint ( ox, oy )
+		b2Vec2 outOtherContactPoint = Physics::scaleUp( thisTestResult.otherContactPoint );
+		lua_pushnumber( L, outOtherContactPoint.x );
+		lua_pushnumber( L, outOtherContactPoint.y );
+
+		lua_call( L, 10, 1 );
+
+		bool shouldContinue = lua_isnil( L, -1 ) || lua_toboolean( L, -1 );
+		lua_pop( L, 1 );
+
+		return shouldContinue;
+	}
+};
+
+int Body::sweep( lua_State *L )
+{
+
+	luax_assert_argc(L, 5);
+	lua_settop( L, 5 );
+
+	float x1 = (float)luaL_checknumber(L, 1);
+	float y1 = (float)luaL_checknumber(L, 2);
+	float x2 = (float)luaL_checknumber(L, 3);
+	float y2 = (float)luaL_checknumber(L, 4);
+	b2Vec2 v1 = Physics::scaleDown(b2Vec2(x1, y1));
+	b2Vec2 v2 = Physics::scaleDown(b2Vec2(x2, y2));
+
+	// Fill out the half of the TOI input struct that's going to be constant.
+	b2TOIInput traceInfo;
+	traceInfo.tMax = 1.0f;
+	traceInfo.proxyA.Set( body->GetFixtureList()->GetShape(), 0 );
+	GetSweepInfo( body, v1, v2, &(traceInfo.sweepA) );
+
+	// Figure out out bbox.
+	b2AABB bbox;
+	b2Transform transforms = body->GetTransform();
+	transforms.p.SetZero();
+	body->GetFixtureList()->GetShape()->ComputeAABB( &bbox, transforms, 0 );
+
+	b2Vec2 bboxSize = b2Vec2( bbox.upperBound.x - bbox.lowerBound.x, bbox.upperBound.y - bbox.lowerBound.y );
+
+	// Figure out the bbox of this cast.
+	b2AABB bboxStart = bbox;
+	//TranslateAABB( &bboxStart, src );
+	bboxStart.lowerBound += v1;
+	bboxStart.upperBound += v1;
+	b2AABB bboxEnd = bbox;
+	//TranslateAABB( &bboxEnd, dest );
+	bboxEnd.lowerBound += v2;
+	bboxEnd.upperBound += v2;
+
+	b2AABB testBox;
+	testBox.Combine( bboxStart, bboxEnd );
+
+	// Cast this body against all others in the cast bbox.
+
+	BodyCastCallback callback( L, body, &traceInfo );
+	world->world->QueryAABB( &callback, testBox );
+
+	return 0;
+}
+
 } // box2d
 } // physics
 } // love

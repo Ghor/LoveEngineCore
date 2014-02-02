@@ -531,6 +531,15 @@ int w_Body_getFixtureList(lua_State *L)
 	return n;
 }
 
+int w_Body_sweep(lua_State* L)
+{
+	Body *t = luax_checkbody(L, 1);
+	lua_remove(L, 1);
+	int n = 0;
+	EXCEPT_GUARD(n = t->sweep(L);)
+		return n;
+}
+
 int w_Body_destroy(lua_State *L)
 {
 	Body *t = luax_checkbody(L, 1);
@@ -591,6 +600,7 @@ static const luaL_Reg functions[] =
 	{ "setFixedRotation", w_Body_setFixedRotation },
 	{ "isFixedRotation", w_Body_isFixedRotation },
 	{ "getFixtureList", w_Body_getFixtureList },
+	{ "sweep", w_Body_sweep },
 	{ "destroy", w_Body_destroy },
 	{ 0, 0 }
 };
